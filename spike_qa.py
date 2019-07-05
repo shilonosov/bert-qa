@@ -9,6 +9,120 @@ import os
 flags = tf.flags
 FLAGS = flags.FLAGS
 
+flags.DEFINE_string(
+    "bert_config_file", None,
+    "The config json file corresponding to the pre-trained BERT model. "
+    "This specifies the model architecture.")
+
+flags.DEFINE_string("vocab_file", None,
+                    "The vocabulary file that the BERT model was trained on.")
+
+flags.DEFINE_string(
+    "output_dir", None,
+    "The output directory where the model checkpoints will be written.")
+
+flags.DEFINE_string(
+    "init_checkpoint", None,
+    "Initial checkpoint (usually from a pre-trained BERT model).")
+
+flags.DEFINE_bool(
+    "do_lower_case", True,
+    "Whether to lower case the input text. Should be True for uncased "
+    "models and False for cased models.")
+
+flags.DEFINE_integer(
+    "max_seq_length", 384,
+    "The maximum total input sequence length after WordPiece tokenization. "
+    "Sequences longer than this will be truncated, and sequences shorter "
+    "than this will be padded.")
+
+flags.DEFINE_integer(
+    "doc_stride", 128,
+    "When splitting up a long document into chunks, how much stride to "
+    "take between chunks.")
+
+flags.DEFINE_integer(
+    "max_query_length", 64,
+    "The maximum number of tokens for the question. Questions longer than "
+    "this will be truncated to this length.")
+
+flags.DEFINE_bool("do_train", False, "Whether to run training.")
+
+flags.DEFINE_bool("do_predict", True, "Whether to run eval on the dev set.")
+
+flags.DEFINE_integer("train_batch_size", 32, "Total batch size for training.")
+
+flags.DEFINE_integer("predict_batch_size", 8,
+                     "Total batch size for predictions.")
+
+flags.DEFINE_float("learning_rate", 5e-5, "The initial learning rate for Adam.")
+
+flags.DEFINE_float("num_train_epochs", 3.0,
+                   "Total number of training epochs to perform.")
+
+flags.DEFINE_float(
+    "warmup_proportion", 0.1,
+    "Proportion of training to perform linear learning rate warmup for. "
+    "E.g., 0.1 = 10% of training.")
+
+flags.DEFINE_integer("save_checkpoints_steps", 1000,
+                     "How often to save the model checkpoint.")
+
+flags.DEFINE_integer("iterations_per_loop", 1000,
+                     "How many steps to make in each estimator call.")
+
+flags.DEFINE_integer(
+    "n_best_size", 20,
+    "The total number of n-best predictions to generate in the "
+    "nbest_predictions.json output file.")
+
+flags.DEFINE_integer(
+    "max_answer_length", 30,
+    "The maximum length of an answer that can be generated. This is needed "
+    "because the start and end predictions are not conditioned on one another.")
+
+flags.DEFINE_bool("use_tpu", False, "Whether to use TPU or GPU/CPU.")
+
+tf.flags.DEFINE_string(
+    "tpu_name", None,
+    "The Cloud TPU to use for training. This should be either the name "
+    "used when creating the Cloud TPU, or a grpc://ip.address.of.tpu:8470 "
+    "url.")
+
+tf.flags.DEFINE_string(
+    "tpu_zone", None,
+    "[Optional] GCE zone where the Cloud TPU is located in. If not "
+    "specified, we will attempt to automatically detect the GCE project from "
+    "metadata.")
+
+tf.flags.DEFINE_string(
+    "gcp_project", None,
+    "[Optional] Project name for the Cloud TPU-enabled project. If not "
+    "specified, we will attempt to automatically detect the GCE project from "
+    "metadata.")
+
+tf.flags.DEFINE_string("master", None, "[Optional] TensorFlow master URL.")
+
+flags.DEFINE_integer(
+    "num_tpu_cores", 8,
+    "Only used if `use_tpu` is True. Total number of TPU cores to use.")
+
+flags.DEFINE_bool(
+    "verbose_logging", False,
+    "If true, all of the warnings related to data processing will be printed. "
+    "A number of warnings are expected for a normal SQuAD evaluation.")
+
+flags.DEFINE_bool(
+    "version_2_with_negative", False,
+    "If true, the SQuAD examples contain some that do not have an answer.")
+
+flags.DEFINE_float(
+    "null_score_diff_threshold", 0.0,
+    "If null_score - best_non_null is greater than the threshold predict null.")
+
+
+RawResult = collections.namedtuple("RawResult",
+                                   ["unique_id", "start_logits", "end_logits"])
 
 class SquadExample(object):
     """A single training/test example for simple sequence classification.
@@ -86,15 +200,6 @@ def validate_flags_or_throw(bert_config):
 
     if not FLAGS.do_train and not FLAGS.do_predict:
         raise ValueError("At least one of `do_train` or `do_predict` must be True.")
-
-    if FLAGS.do_train:
-        if not FLAGS.train_file:
-            raise ValueError(
-                "If `do_train` is True, then `train_file` must be specified.")
-    if FLAGS.do_predict:
-        if not FLAGS.predict_file:
-            raise ValueError(
-                "If `do_predict` is True, then `predict_file` must be specified.")
 
     if FLAGS.max_seq_length > bert_config.max_position_embeddings:
         raise ValueError(
@@ -327,8 +432,7 @@ def _check_is_max_context(doc_spans, cur_span_index, position):
 
 
 def convert_examples_to_features(examples, tokenizer, max_seq_length,
-                                 doc_stride, max_query_length,
-                                 output_fn):
+                                 doc_stride, max_query_length):
     """Loads a data file into a list of `InputBatch`s."""
 
     unique_id = 1000000000
@@ -438,11 +542,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
     return features
 
 
-def input_fn_builder_in_memory(features):
-    pass
-
-def input_fn_builder(input_file, seq_length, is_training, drop_remainder):
-    """Creates an `input_fn` closure to be passed to TPUEstimator."""
+def input_fn_builder_in_memory(features, seq_length, batch_size, drop_remainder):
 
     name_to_features = {
         "unique_ids": tf.FixedLenFeature([], tf.int64),
@@ -451,7 +551,7 @@ def input_fn_builder(input_file, seq_length, is_training, drop_remainder):
         "segment_ids": tf.FixedLenFeature([seq_length], tf.int64),
     }
 
-    def _decode_record(record, name_to_features):
+    def _decode_record(record):
         """Decodes a record to a TensorFlow example."""
         example = tf.parse_single_example(record, name_to_features)
 
@@ -465,35 +565,32 @@ def input_fn_builder(input_file, seq_length, is_training, drop_remainder):
 
         return example
 
-    def input_fn(params):
-        """The actual input function."""
-        batch_size = params["batch_size"]
-
-        # For training, we want a lot of parallel reading and shuffling.
-        # For eval, we want no shuffling and parallel reading doesn't matter.
-        d = tf.data.TFRecordDataset(input_file)
+    def _subfunction(params):
+        d = tf.data.TFRecordDataset()
         d = d.apply(
             tf.contrib.data.map_and_batch(
-                lambda record: _decode_record(record, name_to_features),
+                lambda record: _decode_record(record),
                 batch_size=batch_size,
                 drop_remainder=drop_remainder))
 
         return d
 
-    return input_fn
-
+    return _subfunction
 
 def main(input):
+
     bert_base_dir = r"C:\Projects\_Self\Questions-Answers\bert_squad_uncased_L-24_H-1024_A-16\squad_output_model\squad_output"
     bert_config_file = os.path.join(bert_base_dir, "bert_config.json")
+    bert_vocab_file = os.path.join(bert_base_dir, "vocab.txt")
+    bert_checkpoint = os.path.join(bert_base_dir, "model.ckpt-10859")
 
     tf.logging.set_verbosity(tf.logging.INFO)
 
-    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
+    bert_config = modeling.BertConfig.from_json_file(bert_config_file)
 
     validate_flags_or_throw(bert_config)
 
-    tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
+    tokenizer = tokenization.FullTokenizer(bert_vocab_file, do_lower_case=False)
 
     tpu_cluster_resolver = None
     if FLAGS.use_tpu and FLAGS.tpu_name:
@@ -504,7 +601,7 @@ def main(input):
     run_config = tf.contrib.tpu.RunConfig(
         cluster=tpu_cluster_resolver,
         master=FLAGS.master,
-        model_dir=FLAGS.output_dir,
+        model_dir=bert_base_dir,
         save_checkpoints_steps=FLAGS.save_checkpoints_steps,
         tpu_config=tf.contrib.tpu.TPUConfig(
             iterations_per_loop=FLAGS.iterations_per_loop,
@@ -516,7 +613,7 @@ def main(input):
 
     model_fn = model_fn_builder(
         bert_config=bert_config,
-        init_checkpoint=FLAGS.init_checkpoint,
+        init_checkpoint=bert_checkpoint,
         learning_rate=FLAGS.learning_rate,
         num_train_steps=num_train_steps,
         num_warmup_steps=num_warmup_steps,
@@ -534,22 +631,12 @@ def main(input):
 
     all_examples = get_squad_examples(model_input)
 
-    #    eval_writer = FeatureWriter(
-    #        filename=os.path.join(FLAGS.output_dir, "eval.tf_record"),
-    #        is_training=False)
-    #    eval_features = []
-
-    #    def append_feature(feature):
-    #        eval_features.append(feature)
-    #        eval_writer.process_feature(feature)
-
     all_features = convert_examples_to_features(
         examples=all_examples,
         tokenizer=tokenizer,
         max_seq_length=FLAGS.max_seq_length,
         doc_stride=FLAGS.doc_stride,
-        max_query_length=FLAGS.max_query_length,
-        is_training=False)
+        max_query_length=FLAGS.max_query_length)
     #    eval_writer.close()
 
     tf.logging.info("***** Running predictions *****")
@@ -559,36 +646,30 @@ def main(input):
 
     all_results = []
 
-    predict_input_fn = input_fn_builder(
-        input_file=eval_writer.filename,
-        seq_length=FLAGS.max_seq_length,
-        is_training=False,
-        drop_remainder=False)
+    predict_input_fn = input_fn_builder_in_memory(features=all_features,
+                                                  seq_length=FLAGS.max_seq_length,
+                                                  batch_size=1,
+                                                  drop_remainder=True)
+
+    for (index, feature) in enumerate(all_features):
+        print("index:", index, "feature:", feature)
 
     # If running eval on the TPU, you will need to specify the number of
     # steps.
     all_results = []
-    for result in estimator.predict(
-            predict_input_fn, yield_single_examples=True):
+    for result in estimator.predict(predict_input_fn, yield_single_examples=True):
         if len(all_results) % 1000 == 0:
             tf.logging.info("Processing example: %d" % (len(all_results)))
         unique_id = int(result["unique_ids"])
+
         start_logits = [float(x) for x in result["start_logits"].flat]
         end_logits = [float(x) for x in result["end_logits"].flat]
+
         all_results.append(
             RawResult(
                 unique_id=unique_id,
                 start_logits=start_logits,
                 end_logits=end_logits))
-
-    output_prediction_file = os.path.join(FLAGS.output_dir, "predictions.json")
-    output_nbest_file = os.path.join(FLAGS.output_dir, "nbest_predictions.json")
-    output_null_log_odds_file = os.path.join(FLAGS.output_dir, "null_odds.json")
-
-    write_predictions(all_examples, eval_features, all_results,
-                      FLAGS.n_best_size, FLAGS.max_answer_length,
-                      FLAGS.do_lower_case, output_prediction_file,
-                      output_nbest_file, output_null_log_odds_file)
 
 
 model_input = [
