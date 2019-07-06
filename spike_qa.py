@@ -3,6 +3,7 @@ import modeling
 import tokenization
 import optimization
 import collections
+import numpy as np
 
 import os
 
@@ -120,9 +121,9 @@ flags.DEFINE_float(
     "null_score_diff_threshold", 0.0,
     "If null_score - best_non_null is greater than the threshold predict null.")
 
-
 RawResult = collections.namedtuple("RawResult",
                                    ["unique_id", "start_logits", "end_logits"])
+
 
 class SquadExample(object):
     """A single training/test example for simple sequence classification.
@@ -191,6 +192,14 @@ class InputFeatures(object):
         self.start_position = start_position
         self.end_position = end_position
         self.is_impossible = is_impossible
+
+    def get_tensors_dict(self):
+        return {
+            "unique_ids": [self.unique_id],
+            "input_ids": self.input_ids,
+            "input_mask": self.input_mask,
+            "segment_ids": self.segment_ids
+        }
 
 
 def validate_flags_or_throw(bert_config):
@@ -543,6 +552,39 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
 
 
 def input_fn_builder_in_memory(features, seq_length, batch_size, drop_remainder):
+    # "unique_ids": tf.convert_to_tensor([self.unique_id]),
+    # "input_ids": tf.convert_to_tensor(self.input_ids),
+    # "input_mask": tf.convert_to_tensor(self.input_mask),
+    # "segment_ids": tf.convert_to_tensor(self.segment_ids),
+
+    unique_ids = []
+    input_ids = []
+    input_mask = []
+    segment_ids = []
+
+    for x in features:
+        d = x.get_tensors_dict()
+        unique_ids.append(d['unique_ids'])
+        input_ids.append(d['input_ids'])
+        input_mask.append(d['input_mask'])
+        segment_ids.append(d['segment_ids'])
+
+    unique_ids = np.array(unique_ids, dtype=np.int32)
+    input_ids = np.array(input_ids, dtype=np.int32)
+    input_mask = np.array(input_mask, dtype=np.int32)
+    segment_ids = np.array(segment_ids, dtype=np.int32)
+
+    unique_ids = np.reshape(unique_ids, (1,))
+    input_ids = np.reshape(input_ids, (seq_length,))
+    input_mask = np.reshape(input_mask, (seq_length,))
+    segment_ids = np.reshape(segment_ids, (seq_length,))
+
+    np_features = {
+        "unique_ids": unique_ids,
+        "input_ids": input_ids,
+        "input_mask": input_mask,
+        "segment_ids": segment_ids
+    }
 
     name_to_features = {
         "unique_ids": tf.FixedLenFeature([], tf.int64),
@@ -553,7 +595,11 @@ def input_fn_builder_in_memory(features, seq_length, batch_size, drop_remainder)
 
     def _decode_record(record):
         """Decodes a record to a TensorFlow example."""
-        example = tf.parse_single_example(record, name_to_features)
+        # example = tf.data
+        # example = tf.parse_single_example(record, name_to_features)
+        example = {}
+        for key in list(record.keys()):
+            example[key] = tf.convert_to_tensor(record[key])
 
         # tf.Example only supports tf.int64, but the TPU only supports tf.int32.
         # So cast all int64 to int32.
@@ -566,7 +612,7 @@ def input_fn_builder_in_memory(features, seq_length, batch_size, drop_remainder)
         return example
 
     def _subfunction(params):
-        d = tf.data.TFRecordDataset()
+        d = tf.data.Dataset.from_tensor_slices(np_features)
         d = d.apply(
             tf.contrib.data.map_and_batch(
                 lambda record: _decode_record(record),
@@ -577,8 +623,8 @@ def input_fn_builder_in_memory(features, seq_length, batch_size, drop_remainder)
 
     return _subfunction
 
-def main(input):
 
+def main(input):
     bert_base_dir = r"C:\Projects\_Self\Questions-Answers\bert_squad_uncased_L-24_H-1024_A-16\squad_output_model\squad_output"
     bert_config_file = os.path.join(bert_base_dir, "bert_config.json")
     bert_vocab_file = os.path.join(bert_base_dir, "vocab.txt")
@@ -644,8 +690,6 @@ def main(input):
     tf.logging.info("  Num split examples = %d", len(all_features))
     tf.logging.info("  Batch size = %d", FLAGS.predict_batch_size)
 
-    all_results = []
-
     predict_input_fn = input_fn_builder_in_memory(features=all_features,
                                                   seq_length=FLAGS.max_seq_length,
                                                   batch_size=1,
@@ -692,4 +736,7 @@ model_input = [
         ]}
 ]
 
-main(model_input)
+try:
+    main(model_input)
+except Exception as e:
+    print('error', e)
