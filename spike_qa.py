@@ -444,6 +444,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                                  doc_stride, max_query_length):
     """Loads a data file into a list of `InputBatch`s."""
 
+    features = []
     unique_id = 1000000000
 
     for (example_index, example) in enumerate(examples):
@@ -484,7 +485,6 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                 break
             start_offset += min(length, doc_stride)
 
-        features = []
         for (doc_span_index, doc_span) in enumerate(doc_spans):
             tokens = []
             token_to_orig_map = {}
@@ -550,6 +550,57 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
 
     return features
 
+
+def input_fn_builder(features, seq_length, is_training, drop_remainder):
+  """Creates an `input_fn` closure to be passed to TPUEstimator."""
+
+  all_input_ids = []
+  all_input_mask = []
+  all_segment_ids = []
+  all_unique_ids = []
+
+  for feature in features:
+    all_input_ids.append(feature.input_ids)
+    all_input_mask.append(feature.input_mask)
+    all_segment_ids.append(feature.segment_ids)
+    all_unique_ids.append(feature.unique_id)
+
+  def input_fn(params):
+    """The actual input function."""
+    batch_size = params["batch_size"]
+
+    num_examples = len(features)
+
+    # This is for demo purposes and does NOT scale to large data sets. We do
+    # not use Dataset.from_generator() because that uses tf.py_func which is
+    # not TPU compatible. The right way to load data is with TFRecordReader.
+    d = tf.data.Dataset.from_tensor_slices({
+        "input_ids":
+            tf.constant(
+                all_input_ids, shape=[num_examples, seq_length],
+                dtype=tf.int32),
+        "input_mask":
+            tf.constant(
+                all_input_mask,
+                shape=[num_examples, seq_length],
+                dtype=tf.int32),
+        "segment_ids":
+            tf.constant(
+                all_segment_ids,
+                shape=[num_examples, seq_length],
+                dtype=tf.int32),
+        "unique_ids":
+            tf.constant(all_unique_ids, shape=[num_examples], dtype=tf.int32),
+    })
+
+    if is_training:
+      d = d.repeat()
+      d = d.shuffle(buffer_size=100)
+
+    d = d.batch(batch_size=batch_size, drop_remainder=drop_remainder)
+    return d
+
+  return input_fn
 
 def input_fn_builder_in_memory(features, seq_length, batch_size, drop_remainder):
     # "unique_ids": tf.convert_to_tensor([self.unique_id]),
@@ -690,10 +741,8 @@ def main(input):
     tf.logging.info("  Num split examples = %d", len(all_features))
     tf.logging.info("  Batch size = %d", FLAGS.predict_batch_size)
 
-    predict_input_fn = input_fn_builder_in_memory(features=all_features,
-                                                  seq_length=FLAGS.max_seq_length,
-                                                  batch_size=1,
-                                                  drop_remainder=True)
+    predict_input_fn = input_fn_builder(features=all_features, seq_length=FLAGS.max_seq_length,
+                                        is_training=False, drop_remainder=True)
 
     for (index, feature) in enumerate(all_features):
         print("index:", index, "feature:", feature)
@@ -701,9 +750,8 @@ def main(input):
     # If running eval on the TPU, you will need to specify the number of
     # steps.
     all_results = []
-    for result in estimator.predict(predict_input_fn, yield_single_examples=True):
-        if len(all_results) % 1000 == 0:
-            tf.logging.info("Processing example: %d" % (len(all_results)))
+    all_predictions = list(estimator.predict(predict_input_fn, yield_single_examples=True))
+    for result in all_predictions:
         unique_id = int(result["unique_ids"])
 
         start_logits = [float(x) for x in result["start_logits"].flat]
@@ -714,6 +762,9 @@ def main(input):
                 unique_id=unique_id,
                 start_logits=start_logits,
                 end_logits=end_logits))
+        print("unique_id:", unique_id)
+        print("start_logits:", start_logits)
+        print("end_logits:", end_logits)
 
 
 model_input = [
