@@ -12,13 +12,10 @@ import os
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-#bert_base_dir = r"C:\Projects\_Self\Questions-Answers\bert_squad_uncased_L-24_H-1024_A-16\squad_output_model\squad_output"
-#bert_base_dir = r"C:\Projects\_Self\Questions-Answers\bert-squad-multi_cased_L-12_H-768_A-12\bert-squad-multi_cased_L-12_H-768_A-12\squad_output-multi_cased_L-12_H-768_A-12"
-bert_base_dir = r"C:\Projects\_Self\Questions-Answers\bert-squad-cased_L-24_H-1024_A-16\bert-squad-cased_L-24_H-1024_A-16\squad_output-cased_L-24_H-1024_A-16"
+bert_base_dir = r"C:\Projects\_Self\Questions-Answers\bert-squad-multi_cased_L-12_H-768_A-12\squad_output-multi_cased_L-12_H-768_A-12"
 bert_config_file = os.path.join(bert_base_dir, "bert_config.json")
 bert_vocab_file = os.path.join(bert_base_dir, "vocab.txt")
-#bert_checkpoint = os.path.join(bert_base_dir, "model.ckpt-10859")
-bert_checkpoint = os.path.join(bert_base_dir, "model.ckpt-54299")
+bert_checkpoint = os.path.join(bert_base_dir, "model.ckpt-271497")
 
 flags.DEFINE_string(
     "bert_config_file", bert_config_file,
@@ -128,7 +125,7 @@ flags.DEFINE_bool(
     "If true, the SQuAD examples contain some that do not have an answer.")
 
 flags.DEFINE_float(
-    "null_score_diff_threshold", 10.0,
+    "null_score_diff_threshold", -5.0,
     "If null_score - best_non_null is greater than the threshold predict null.")
 
 RawResult = collections.namedtuple("RawResult",
@@ -856,7 +853,7 @@ def extract_final_text(features, pred, example, do_lower_case, seen_predictions)
 
             seen_predictions[final_text] = True
     else:
-        final_text = ""
+        final_text = None
         seen_predictions[final_text] = True
 
     return final_text
@@ -981,7 +978,7 @@ def print_predictions(
             if "" not in seen_predictions:
                 nbest.append(
                     _NbestPrediction(
-                        text="", start_logit=null_start_logit, end_logit=null_end_logit
+                        text=None, start_logit=null_start_logit, end_logit=null_end_logit
                     )
                 )
         # In very rare edge cases we could have no valid predictions. So we
@@ -1121,29 +1118,52 @@ def main(input):
         #print("end_logits:", end_logits)
 
     print_predictions(all_examples=all_examples, all_features=all_features, all_results=all_results,
-                      n_best_size=15, max_answer_length=40, do_lower_case=False, version_2_with_negative=True,
-                      null_score_diff_threshold=-3.0)
+                      n_best_size=5, max_answer_length=200, do_lower_case=False, version_2_with_negative=True,
+                      null_score_diff_threshold=30)
 
 
 model_input = [
     {
-        "context": "Google was founded in 1998 by Larry Page and Sergey Brin while they were Ph.D. students at "
-                   "Stanford University in California. Together they own about 14 percent of its shares and control "
-                   "56 percent of the stockholder voting power through supervoting stock. They incorporated Google as "
-                   "a privately held company on September 4, 1998. An initial public offering (IPO) took place on "
-                   "August 19, 2004, and Google moved to its headquarters in Mountain View, California, nicknamed the "
-                   "Googleplex. In August 2015, Google announced plans to reorganize its various interests as a "
-                   "conglomerate called Alphabet Inc. Google is Alphabet's leading subsidiary and will continue to be "
-                   "the umbrella company for Alphabet's Internet interests. Sundar Pichai was appointed CEO of "
-                   "Google, replacing Larry Page who became the CEO of Alphabet.",
+#        "context": "Google was founded in 1998 by Larry Page and Sergey Brin while they were Ph.D. students at "
+#                   "Stanford University in California. Together they own about 14 percent of its shares and control "
+#                   "56 percent of the stockholder voting power through supervoting stock. They incorporated Google as "
+#                   "a privately held company on September 4, 1998. An initial public offering (IPO) took place on "
+#                   "August 19, 2004, and Google moved to its headquarters in Mountain View, California, nicknamed the "
+#                   "Googleplex. In August 2015, Google announced plans to reorganize its various interests as a "
+#                   "conglomerate called Alphabet Inc. Google is Alphabet's leading subsidiary and will continue to be "
+#                   "the umbrella company for Alphabet's Internet interests. Sundar Pichai was appointed CEO of "
+#                   "Google, replacing Larry Page who became the CEO of Alphabet.",
+#        "questions": [
+#            "Who is current CEO?",
+#            "When did IPO take place?",
+#            "Where google started?",
+#            "Who founded google?",
+#            "Where is headquarter of Google?",
+#            "Who loved coca-cola more?"
+#        ]},
+        "context": "Dear colleagues, Years ago, living in Argentina, several times we tried to join “yerba mate” "
+                   "tradition and spread it across the offices. It didn’t work, too much time is needed for "
+                   "developing the addiction & a pattern. People in Argentina, Uruguay, and Paraguay substitute the "
+                   "breast milk by the mate, but it’s too late for the majority of others. Recently one of the "
+                   "restaurants reminded us about the terere – a variety of cold mate-based drinks. The most "
+                   "traditionally it’s just yerba+cold water, but we liked it with diet Fanta. You can check Google "
+                   "and YouTube, “terere”, like https://www.youtube.com/watch?v=7e5HFdopqNE. Now we delivered a "
+                   "couple of “calabazas”, vitreous, because natural ones don’t live long out of Argentina – we just "
+                   "don’t know how to care properly. These glass “calabazas” can be just washed as teacups, and yes, "
+                   "you can use just a teacup instead. The more important components are: yerba (we put two boxes to "
+                   "the kitchen); bombillas (you can find some among the spoons); and diet Fanta (now some available "
+                   "in the fridge). You can use cold water, a juice, or whatever you like, instead. You can refill "
+                   "one calabaza with Fanta many times without changing the yerba. The key moments: Put a bombilla "
+                   "into a calabaza, 50-70% of volume of yerba above, keep the bombilla inside till the end. Empty "
+                   "the calabaza into a trash bin at the end, wet yerba can swell up dangerously. Find your way of "
+                   "consuming “matein”, close relative of caffeine, when your body recognizes it, the taste becomes "
+                   "very attractive ☺… Please ask us for advice if you find it easier, we will help with pleasure. ",
         "questions": [
-            "Who is current CEO?",
-            "When did IPO take place?",
-            "Where google started?",
-            "Who founded google?",
-            "Where is headquarter of Google?",
-            "Who loved coca-cola more?"
-        ]}
+            "What is yerba mate?",
+            "Where is yerba mate originated from?",
+            "What are components of yerba mate?"
+        ]
+    }
 ]
 
 try:
